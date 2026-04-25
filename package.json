@@ -1,5 +1,5 @@
 {
-  "name": "web-proxy",
+  "name": "proper-proxy",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -13,7 +13,7 @@
   "packageManager": "pnpm@10.33.2",
   "dependencies": {
     "express": "^5.2.1",
-    "node-fetch": "^3.3.2"
+    "unblocker": "^2.3.1"
   },
   "type": "module"
 }
