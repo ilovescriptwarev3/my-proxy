@@ -1,91 +1,87 @@
 import express from "express";
-import fetch from "node-fetch";
+import Unblocker from "unblocker";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/{*path}", async (req, res) => {
-  let targetUrl = req.url.slice(1);
-
-  // Show help page if no URL given
-  if (!targetUrl) {
-    return res.send(`
-      <html>
-        <body style="font-family:sans-serif;padding:2rem;">
-          <h2>Web Proxy</h2>
-          <p>Type a URL in the address bar like this:</p>
-          <code>your-domain.com/https://example.com</code>
-        </body>
-      </html>
-    `);
-  }
-
-  // Add https:// if no protocol given
-  if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-    targetUrl = "https://" + targetUrl;
-  }
-
-  try {
-    const parsedTarget = new URL(targetUrl);
-    const baseOrigin = parsedTarget.origin; // e.g. https://www.google.com
-
-    const response = await fetch(targetUrl, {
-      headers: {
-        "User-Agent": req.headers["user-agent"] || "Mozilla/5.0",
-        "Accept": req.headers["accept"] || "*/*",
-        "Accept-Language": req.headers["accept-language"] || "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    });
-
-    const contentType = response.headers.get("content-type") || "text/html";
-
-    // Only rewrite HTML pages, stream everything else (images, css, js, etc.)
-    if (!contentType.includes("text/html")) {
-      res.setHeader("content-type", contentType);
-      res.status(response.status);
-      response.body.pipe(res);
-      return;
-    }
-
-    let html = await response.text();
-
-    // Rewrite absolute URLs (href="https://..." and src="https://...")
-    html = html.replace(/(href|src|action)="(https?:\/\/[^"]+)"/gi, (_, attr, url) => {
-      return `${attr}="/${url}"`;
-    });
-
-    // Rewrite root-relative URLs (href="/something") to go through proxy with base origin
-    html = html.replace(/(href|src|action)="(\/[^/"'][^"]*?)"/gi, (_, attr, path) => {
-      return `${attr}="/${baseOrigin}${path}"`;
-    });
-
-    // Rewrite JS redirects like location.href = "/path"
-    html = html.replace(/location\.href\s*=\s*["'](\/?[^"']+)["']/g, (_, path) => {
-      if (path.startsWith("http")) return `location.href = "/${path}"`;
-      return `location.href = "/${baseOrigin}${path}"`;
-    });
-
-    res.setHeader("content-type", "text/html");
-    res.status(response.status);
-    res.send(html);
-
-    console.log(`[${response.status}] ${targetUrl}`);
-  } catch (err) {
-    console.error(`[error] ${targetUrl} — ${err.message}`);
-    res.status(500).send(`
-      <html>
-        <body style="font-family:sans-serif;padding:2rem;">
-          <h2>Could not load page</h2>
-          <p><strong>URL:</strong> ${targetUrl}</p>
-          <p><strong>Reason:</strong> ${err.message}</p>
-        </body>
-      </html>
-    `);
-  }
+const unblocker = new Unblocker({
+  prefix: "/proxy/",
 });
+
+app.use(unblocker);
+
+// Home page with a simple URL bar
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Web Proxy</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #f0f0f0;
+          }
+          h1 { margin-bottom: 1rem; font-size: 2rem; }
+          form {
+            display: flex;
+            gap: 0.5rem;
+            width: 100%;
+            max-width: 600px;
+            padding: 0 1rem;
+          }
+          input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            outline: none;
+          }
+          input:focus { border-color: #4a90e2; }
+          button {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+          }
+          button:hover { background: #357abd; }
+          p { margin-top: 1rem; color: #666; font-size: 0.9rem; }
+        </style>
+      </head>
+      <body>
+        <h1>🌐 Web Proxy</h1>
+        <form onsubmit="navigate(event)">
+          <input type="text" id="url" placeholder="https://example.com" autofocus />
+          <button type="submit">Go</button>
+        </form>
+        <p>Enter any URL above to browse through the proxy</p>
+        <script>
+          function navigate(e) {
+            e.preventDefault();
+            let url = document.getElementById('url').value.trim();
+            if (!url.startsWith('http')) url = 'https://' + url;
+            window.location.href = '/proxy/' + url;
+          }
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// Handle upgrade for websockets (keeps some sites working better)
+app.on("upgrade", unblocker.onUpgrade);
 
 app.listen(PORT, () => {
   console.log(`\n🚀 Proxy running at http://localhost:${PORT}`);
-  console.log(`   Usage: http://localhost:${PORT}/https://example.com\n`);
+  console.log(`   Open that URL in your browser and type any site\n`);
 });
